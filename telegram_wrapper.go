@@ -103,6 +103,18 @@ func (p *DebouncedTelegramPlatform) Name() string {
 	return p.underlying.Name()
 }
 
+func (p *DebouncedTelegramPlatform) Window() time.Duration {
+	return p.window
+}
+
+func (p *DebouncedTelegramPlatform) CopyOptions() CopyPolicyOptions {
+	return p.copyOpts
+}
+
+func (p *DebouncedTelegramPlatform) CopyEnabled() bool {
+	return p.copyOpts.Enabled
+}
+
 func (p *DebouncedTelegramPlatform) Start(handler core.MessageHandler) error {
 	if p.window > 0 {
 		p.aggregator = NewTelegramAggregator(p.window, handler)
