@@ -4,8 +4,6 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"net/http"
-	"net/url"
 	"time"
 
 	"github.com/chenhg5/cc-connect/core"
@@ -13,37 +11,20 @@ import (
 )
 
 // DebouncedTelegramPlatform wraps an underlying Telegram platform to aggregate
-// rapid consecutive text messages during a quiet window and support native RichMessage tables.
+// rapid consecutive text messages during a quiet window and attach CopyTextButtons to durable output.
 type DebouncedTelegramPlatform struct {
-	underlying        core.Platform
-	aggregator        *TelegramAggregator
-	window            time.Duration
-	token             string
-	httpClient        *http.Client
-	enableRichMessage bool
+	underlying core.Platform
+	aggregator *TelegramAggregator
+	window     time.Duration
+	copyOpts   CopyPolicyOptions
 }
 
 // NewTelegramWrapper is the platform factory registered with core.RegisterPlatform.
-// It parses opt-in aggregation and enables native RichMessage table rendering with safe fallback.
+// It parses opt-in aggregation and configures copy-worthy button policies.
 func NewTelegramWrapper(opts map[string]any) (core.Platform, error) {
 	underlying, err := telegram.New(opts)
 	if err != nil {
 		return nil, err
-	}
-
-	token, _ := opts["token"].(string)
-
-	var httpClient *http.Client
-	if proxyURL, _ := opts["proxy"].(string); proxyURL != "" {
-		if u, err := url.Parse(proxyURL); err == nil {
-			httpClient = &http.Client{
-				Transport: &http.Transport{Proxy: http.ProxyURL(u)},
-				Timeout:   30 * time.Second,
-			}
-		}
-	}
-	if httpClient == nil {
-		httpClient = &http.Client{Timeout: 30 * time.Second}
 	}
 
 	var window time.Duration
@@ -55,12 +36,17 @@ func NewTelegramWrapper(opts map[string]any) (core.Platform, error) {
 		}
 	}
 
+	copyOpts := DefaultCopyPolicyOptions()
+	if rawMax, ok := opts["max_copy_buttons"]; ok {
+		if max, err := coerceMilliseconds(rawMax); err == nil && max > 0 {
+			copyOpts.MaxButtons = int(max)
+		}
+	}
+
 	return &DebouncedTelegramPlatform{
-		underlying:        underlying,
-		window:            window,
-		token:             token,
-		httpClient:        httpClient,
-		enableRichMessage: token != "",
+		underlying: underlying,
+		window:     window,
+		copyOpts:   copyOpts,
 	}, nil
 }
 
@@ -77,12 +63,13 @@ func (p *DebouncedTelegramPlatform) Start(handler core.MessageHandler) error {
 }
 
 func (p *DebouncedTelegramPlatform) Reply(ctx context.Context, replyCtx any, content string) error {
-	if p.enableRichMessage && hasMarkdownTable(content) {
-		if chatID, threadID, msgID, ok := extractReplyContext(replyCtx); ok {
-			if err := sendRichMessageDirect(ctx, p.httpClient, p.token, chatID, threadID, msgID, content); err == nil {
+	buttons := ExtractCopyButtons(content, p.copyOpts)
+	if len(buttons) > 0 {
+		if s, ok := p.underlying.(core.InlineButtonSender); ok {
+			if err := s.SendWithButtons(ctx, replyCtx, content, buttons); err == nil {
 				return nil
 			} else {
-				slog.Debug("nexus: sendRichMessage Reply failed, degrading to upstream", "error", err)
+				slog.Debug("nexus: SendWithButtons Reply failed, falling back to underlying Reply", "error", err)
 			}
 		}
 	}
@@ -90,12 +77,13 @@ func (p *DebouncedTelegramPlatform) Reply(ctx context.Context, replyCtx any, con
 }
 
 func (p *DebouncedTelegramPlatform) Send(ctx context.Context, replyCtx any, content string) error {
-	if p.enableRichMessage && hasMarkdownTable(content) {
-		if chatID, threadID, _, ok := extractReplyContext(replyCtx); ok {
-			if err := sendRichMessageDirect(ctx, p.httpClient, p.token, chatID, threadID, 0, content); err == nil {
+	buttons := ExtractCopyButtons(content, p.copyOpts)
+	if len(buttons) > 0 {
+		if s, ok := p.underlying.(core.InlineButtonSender); ok {
+			if err := s.SendWithButtons(ctx, replyCtx, content, buttons); err == nil {
 				return nil
 			} else {
-				slog.Debug("nexus: sendRichMessage Send failed, degrading to upstream", "error", err)
+				slog.Debug("nexus: SendWithButtons Send failed, falling back to underlying Send", "error", err)
 			}
 		}
 	}
@@ -112,8 +100,32 @@ func (p *DebouncedTelegramPlatform) Stop() error {
 // Forward optional capability interfaces supported by telegram.Platform
 
 func (p *DebouncedTelegramPlatform) UpdateMessage(ctx context.Context, replyCtx any, content string) error {
+	buttons := ExtractCopyButtons(content, p.copyOpts)
+	if len(buttons) > 0 {
+		if u, ok := p.underlying.(core.MessageButtonUpdater); ok {
+			if err := u.UpdateMessageWithButtons(ctx, replyCtx, content, buttons); err == nil {
+				return nil
+			} else {
+				slog.Debug("nexus: UpdateMessageWithButtons failed, falling back to standard UpdateMessage", "error", err)
+			}
+		}
+	}
 	if u, ok := p.underlying.(core.MessageUpdater); ok {
 		return u.UpdateMessage(ctx, replyCtx, content)
+	}
+	return core.ErrNotSupported
+}
+
+func (p *DebouncedTelegramPlatform) SendWithButtons(ctx context.Context, replyCtx any, content string, buttons [][]core.ButtonOption) error {
+	if s, ok := p.underlying.(core.InlineButtonSender); ok {
+		return s.SendWithButtons(ctx, replyCtx, content, buttons)
+	}
+	return core.ErrNotSupported
+}
+
+func (p *DebouncedTelegramPlatform) UpdateMessageWithButtons(ctx context.Context, replyCtx any, content string, buttons [][]core.ButtonOption) error {
+	if u, ok := p.underlying.(core.MessageButtonUpdater); ok {
+		return u.UpdateMessageWithButtons(ctx, replyCtx, content, buttons)
 	}
 	return core.ErrNotSupported
 }
@@ -225,6 +237,8 @@ func coerceMilliseconds(v any) (int64, error) {
 var (
 	_ core.Platform                  = (*DebouncedTelegramPlatform)(nil)
 	_ core.MessageUpdater            = (*DebouncedTelegramPlatform)(nil)
+	_ core.MessageButtonUpdater      = (*DebouncedTelegramPlatform)(nil)
+	_ core.InlineButtonSender        = (*DebouncedTelegramPlatform)(nil)
 	_ core.PreviewStarter            = (*DebouncedTelegramPlatform)(nil)
 	_ core.PreviewCleaner            = (*DebouncedTelegramPlatform)(nil)
 	_ core.PreviewFinishPreference   = (*DebouncedTelegramPlatform)(nil)

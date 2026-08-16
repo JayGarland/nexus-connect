@@ -52,7 +52,4 @@ func TestRegistrationProbe_DeterministicResolution(t *testing.T) {
 	if debouncedUnbatched.window != 0 {
 		t.Fatalf("expected window 0, got %v", debouncedUnbatched.window)
 	}
-	if !debouncedUnbatched.enableRichMessage {
-		t.Fatalf("expected enableRichMessage true")
-	}
 }
