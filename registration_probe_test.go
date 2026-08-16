@@ -5,7 +5,6 @@ import (
 	"testing"
 
 	"github.com/chenhg5/cc-connect/core"
-	"github.com/chenhg5/cc-connect/platform/telegram"
 )
 
 func TestRegistrationProbe_DeterministicResolution(t *testing.T) {
@@ -34,19 +33,26 @@ func TestRegistrationProbe_DeterministicResolution(t *testing.T) {
 		t.Fatalf("expected underlying telegram platform to be initialized")
 	}
 
-	// Probe 2: With text_batch_window_ms = 0 or omitted, returns vanilla unwrapped telegram.Platform
-	pVanilla, err := core.CreatePlatform("telegram", map[string]any{
+	// Probe 2: With text_batch_window_ms = 0 or omitted, returns DebouncedTelegramPlatform with window=0
+	pUnbatched, err := core.CreatePlatform("telegram", map[string]any{
 		"token": "test-token",
 	})
 	if err != nil {
 		t.Fatalf("CreatePlatform vanilla failed: %v", err)
 	}
 
-	vanillaType := reflect.TypeOf(pVanilla).String()
-	if vanillaType != "*telegram.Platform" {
-		t.Fatalf("expected vanilla platform *telegram.Platform when disabled, got %s", vanillaType)
+	unbatchedType := reflect.TypeOf(pUnbatched).String()
+	if unbatchedType != "*nexus.DebouncedTelegramPlatform" {
+		t.Fatalf("expected wrapped platform *nexus.DebouncedTelegramPlatform, got %s", unbatchedType)
 	}
-	if _, ok := pVanilla.(*telegram.Platform); !ok {
-		t.Fatalf("type assertion to *telegram.Platform failed")
+	debouncedUnbatched, ok := pUnbatched.(*DebouncedTelegramPlatform)
+	if !ok {
+		t.Fatalf("type assertion to *DebouncedTelegramPlatform failed")
+	}
+	if debouncedUnbatched.window != 0 {
+		t.Fatalf("expected window 0, got %v", debouncedUnbatched.window)
+	}
+	if !debouncedUnbatched.enableRichMessage {
+		t.Fatalf("expected enableRichMessage true")
 	}
 }

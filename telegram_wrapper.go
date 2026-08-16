@@ -3,6 +3,9 @@ package nexus
 import (
 	"context"
 	"fmt"
+	"log/slog"
+	"net/http"
+	"net/url"
 	"time"
 
 	"github.com/chenhg5/cc-connect/core"
@@ -10,20 +13,37 @@ import (
 )
 
 // DebouncedTelegramPlatform wraps an underlying Telegram platform to aggregate
-// rapid consecutive text messages during a quiet window into a single turn.
+// rapid consecutive text messages during a quiet window and support native RichMessage tables.
 type DebouncedTelegramPlatform struct {
-	underlying core.Platform
-	aggregator *TelegramAggregator
-	window     time.Duration
+	underlying        core.Platform
+	aggregator        *TelegramAggregator
+	window            time.Duration
+	token             string
+	httpClient        *http.Client
+	enableRichMessage bool
 }
 
 // NewTelegramWrapper is the platform factory registered with core.RegisterPlatform.
-// It parses the opt-in `text_batch_window_ms` option and returns either a wrapped
-// platform or the vanilla underlying platform if aggregation is disabled.
+// It parses opt-in aggregation and enables native RichMessage table rendering with safe fallback.
 func NewTelegramWrapper(opts map[string]any) (core.Platform, error) {
 	underlying, err := telegram.New(opts)
 	if err != nil {
 		return nil, err
+	}
+
+	token, _ := opts["token"].(string)
+
+	var httpClient *http.Client
+	if proxyURL, _ := opts["proxy"].(string); proxyURL != "" {
+		if u, err := url.Parse(proxyURL); err == nil {
+			httpClient = &http.Client{
+				Transport: &http.Transport{Proxy: http.ProxyURL(u)},
+				Timeout:   30 * time.Second,
+			}
+		}
+	}
+	if httpClient == nil {
+		httpClient = &http.Client{Timeout: 30 * time.Second}
 	}
 
 	var window time.Duration
@@ -35,13 +55,12 @@ func NewTelegramWrapper(opts map[string]any) (core.Platform, error) {
 		}
 	}
 
-	if window <= 0 {
-		return underlying, nil
-	}
-
 	return &DebouncedTelegramPlatform{
-		underlying: underlying,
-		window:     window,
+		underlying:        underlying,
+		window:            window,
+		token:             token,
+		httpClient:        httpClient,
+		enableRichMessage: token != "",
 	}, nil
 }
 
@@ -50,15 +69,36 @@ func (p *DebouncedTelegramPlatform) Name() string {
 }
 
 func (p *DebouncedTelegramPlatform) Start(handler core.MessageHandler) error {
-	p.aggregator = NewTelegramAggregator(p.window, handler)
-	return p.underlying.Start(p.aggregator.HandleMessage)
+	if p.window > 0 {
+		p.aggregator = NewTelegramAggregator(p.window, handler)
+		return p.underlying.Start(p.aggregator.HandleMessage)
+	}
+	return p.underlying.Start(handler)
 }
 
 func (p *DebouncedTelegramPlatform) Reply(ctx context.Context, replyCtx any, content string) error {
+	if p.enableRichMessage && hasMarkdownTable(content) {
+		if chatID, threadID, msgID, ok := extractReplyContext(replyCtx); ok {
+			if err := sendRichMessageDirect(ctx, p.httpClient, p.token, chatID, threadID, msgID, content); err == nil {
+				return nil
+			} else {
+				slog.Debug("nexus: sendRichMessage Reply failed, degrading to upstream", "error", err)
+			}
+		}
+	}
 	return p.underlying.Reply(ctx, replyCtx, content)
 }
 
 func (p *DebouncedTelegramPlatform) Send(ctx context.Context, replyCtx any, content string) error {
+	if p.enableRichMessage && hasMarkdownTable(content) {
+		if chatID, threadID, _, ok := extractReplyContext(replyCtx); ok {
+			if err := sendRichMessageDirect(ctx, p.httpClient, p.token, chatID, threadID, 0, content); err == nil {
+				return nil
+			} else {
+				slog.Debug("nexus: sendRichMessage Send failed, degrading to upstream", "error", err)
+			}
+		}
+	}
 	return p.underlying.Send(ctx, replyCtx, content)
 }
 
