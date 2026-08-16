@@ -167,6 +167,37 @@ func (p *DebouncedTelegramPlatform) ReconstructReplyCtx(sessionKey string) (any,
 	return nil, core.ErrNotSupported
 }
 
+func (p *DebouncedTelegramPlatform) SendPreviewStart(ctx context.Context, replyCtx any, content string) (any, error) {
+	if s, ok := p.underlying.(core.PreviewStarter); ok {
+		return s.SendPreviewStart(ctx, replyCtx, content)
+	}
+	return nil, core.ErrNotSupported
+}
+
+func (p *DebouncedTelegramPlatform) DeletePreviewMessage(ctx context.Context, previewHandle any) error {
+	if c, ok := p.underlying.(core.PreviewCleaner); ok {
+		return c.DeletePreviewMessage(ctx, previewHandle)
+	}
+	return core.ErrNotSupported
+}
+
+func (p *DebouncedTelegramPlatform) KeepPreviewOnFinish() bool {
+	if pref, ok := p.underlying.(core.PreviewFinishPreference); ok {
+		return pref.KeepPreviewOnFinish()
+	}
+	return true
+}
+
+func (p *DebouncedTelegramPlatform) KeepPreviewForHandle(handle any) bool {
+	if checker, ok := p.underlying.(interface{ KeepPreviewForHandle(any) bool }); ok {
+		return checker.KeepPreviewForHandle(handle)
+	}
+	if pref, ok := p.underlying.(core.PreviewFinishPreference); ok {
+		return pref.KeepPreviewOnFinish()
+	}
+	return true
+}
+
 func coerceMilliseconds(v any) (int64, error) {
 	switch x := v.(type) {
 	case int:
@@ -194,6 +225,9 @@ func coerceMilliseconds(v any) (int64, error) {
 var (
 	_ core.Platform                  = (*DebouncedTelegramPlatform)(nil)
 	_ core.MessageUpdater            = (*DebouncedTelegramPlatform)(nil)
+	_ core.PreviewStarter            = (*DebouncedTelegramPlatform)(nil)
+	_ core.PreviewCleaner            = (*DebouncedTelegramPlatform)(nil)
+	_ core.PreviewFinishPreference   = (*DebouncedTelegramPlatform)(nil)
 	_ core.ImageSender               = (*DebouncedTelegramPlatform)(nil)
 	_ core.FileSender                = (*DebouncedTelegramPlatform)(nil)
 	_ core.AudioSender               = (*DebouncedTelegramPlatform)(nil)

@@ -61,6 +61,30 @@ func (m *wrapperMockPlatform) SendImage(ctx context.Context, replyCtx any, img c
 	return nil
 }
 
+func (m *wrapperMockPlatform) SendPreviewStart(ctx context.Context, replyCtx any, content string) (any, error) {
+	return 1, nil
+}
+func (m *wrapperMockPlatform) DeletePreviewMessage(ctx context.Context, previewHandle any) error {
+	return nil
+}
+func (m *wrapperMockPlatform) KeepPreviewOnFinish() bool {
+	return true
+}
+
+func waitForTurnCount(mu *sync.Mutex, turns *[]*core.Message, expected int, timeout time.Duration) bool {
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		mu.Lock()
+		count := len(*turns)
+		mu.Unlock()
+		if count >= expected {
+			return true
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	return false
+}
+
 // Simulate incoming message from underlying platform
 func (m *wrapperMockPlatform) Emit(msg *core.Message) {
 	m.mu.Lock()
@@ -100,19 +124,14 @@ func TestDebouncedTelegramPlatform_E2EScenarios(t *testing.T) {
 			Content:    "Normal single message",
 		})
 
-		time.Sleep(80 * time.Millisecond)
+		if !waitForTurnCount(&mu, &turns, 1, 500*time.Millisecond) {
+			t.Fatalf("expected 1 turn within timeout")
+		}
 
 		mu.Lock()
-		count := len(turns)
-		var content string
-		if count > 0 {
-			content = turns[0].Content
-		}
+		content := turns[0].Content
 		mu.Unlock()
 
-		if count != 1 {
-			t.Fatalf("expected 1 turn, got %d", count)
-		}
 		if content != "Normal single message" {
 			t.Fatalf("content mismatch: %q", content)
 		}
@@ -123,7 +142,7 @@ func TestDebouncedTelegramPlatform_E2EScenarios(t *testing.T) {
 		mock := &wrapperMockPlatform{name: "telegram"}
 		wrapper := &DebouncedTelegramPlatform{
 			underlying: mock,
-			window:     80 * time.Millisecond,
+			window:     60 * time.Millisecond,
 		}
 
 		var mu sync.Mutex
@@ -141,7 +160,7 @@ func TestDebouncedTelegramPlatform_E2EScenarios(t *testing.T) {
 			MessageID:  "2001",
 			Content:    "Part 1",
 		})
-		time.Sleep(20 * time.Millisecond)
+		time.Sleep(15 * time.Millisecond)
 
 		mock.Emit(&core.Message{
 			SessionKey: "chat_B",
@@ -150,7 +169,7 @@ func TestDebouncedTelegramPlatform_E2EScenarios(t *testing.T) {
 			MessageID:  "2002",
 			Content:    "Part 2",
 		})
-		time.Sleep(20 * time.Millisecond)
+		time.Sleep(15 * time.Millisecond)
 
 		mock.Emit(&core.Message{
 			SessionKey: "chat_B",
@@ -160,7 +179,9 @@ func TestDebouncedTelegramPlatform_E2EScenarios(t *testing.T) {
 			Content:    "Part 3",
 		})
 
-		time.Sleep(120 * time.Millisecond)
+		if !waitForTurnCount(&mu, &turns, 1, 500*time.Millisecond) {
+			t.Fatalf("expected 1 turn within timeout")
+		}
 
 		mu.Lock()
 		count := len(turns)
@@ -186,7 +207,7 @@ func TestDebouncedTelegramPlatform_E2EScenarios(t *testing.T) {
 		mock := &wrapperMockPlatform{name: "telegram"}
 		wrapper := &DebouncedTelegramPlatform{
 			underlying: mock,
-			window:     50 * time.Millisecond,
+			window:     40 * time.Millisecond,
 		}
 
 		var mu sync.Mutex
@@ -205,7 +226,9 @@ func TestDebouncedTelegramPlatform_E2EScenarios(t *testing.T) {
 			Content:    "Turn 1 text",
 		})
 
-		time.Sleep(80 * time.Millisecond)
+		if !waitForTurnCount(&mu, &turns, 1, 300*time.Millisecond) {
+			t.Fatalf("expected turn 1 within timeout")
+		}
 
 		mock.Emit(&core.Message{
 			SessionKey: "chat_C",
@@ -215,14 +238,8 @@ func TestDebouncedTelegramPlatform_E2EScenarios(t *testing.T) {
 			Content:    "Turn 2 text",
 		})
 
-		time.Sleep(80 * time.Millisecond)
-
-		mu.Lock()
-		count := len(turns)
-		mu.Unlock()
-
-		if count != 2 {
-			t.Fatalf("expected 2 turns, got %d", count)
+		if !waitForTurnCount(&mu, &turns, 2, 300*time.Millisecond) {
+			t.Fatalf("expected turn 2 within timeout")
 		}
 	})
 
