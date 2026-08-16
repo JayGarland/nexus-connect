@@ -27,6 +27,7 @@ var (
 )
 
 type CopyPolicyOptions struct {
+	Enabled        bool
 	MaxButtons     int
 	ButtonsPerRow  int
 	MaxCopyTextLen int
@@ -38,6 +39,7 @@ type CopyPolicyOptions struct {
 
 func DefaultCopyPolicyOptions() CopyPolicyOptions {
 	return CopyPolicyOptions{
+		Enabled:        true,
 		MaxButtons:     4,
 		ButtonsPerRow:  2,
 		MaxCopyTextLen: 256,
@@ -55,7 +57,7 @@ type copyCandidate struct {
 
 // ExtractCopyButtons analyzes message content and returns structured rows of CopyText ButtonOptions.
 func ExtractCopyButtons(content string, opts CopyPolicyOptions) [][]core.ButtonOption {
-	if strings.TrimSpace(content) == "" {
+	if !opts.Enabled || strings.TrimSpace(content) == "" {
 		return nil
 	}
 

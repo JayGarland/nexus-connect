@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/chenhg5/cc-connect/core"
@@ -20,26 +21,74 @@ type DebouncedTelegramPlatform struct {
 }
 
 // NewTelegramWrapper is the platform factory registered with core.RegisterPlatform.
-// It parses opt-in aggregation and configures copy-worthy button policies.
+// It parses aggregation and copy-worthy button policies from config.toml platform options.
 func NewTelegramWrapper(opts map[string]any) (core.Platform, error) {
 	underlying, err := telegram.New(opts)
 	if err != nil {
 		return nil, err
 	}
 
+	// 1. Aggregation configuration
+	// nexus_aggregation_enabled: bool (default: true if omitted)
+	// If enabled, uses text_batch_window_ms (>0)
 	var window time.Duration
-	if raw, ok := opts["text_batch_window_ms"]; ok {
-		if ms, err := coerceMilliseconds(raw); err != nil {
-			return nil, fmt.Errorf("nexus: invalid text_batch_window_ms %v: %w", raw, err)
-		} else if ms > 0 {
-			window = time.Duration(ms) * time.Millisecond
+	aggEnabled := true
+	if rawAgg, ok := opts["nexus_aggregation_enabled"]; ok {
+		if b, ok := coerceBool(rawAgg); ok {
+			aggEnabled = b
+		}
+	}
+	if aggEnabled {
+		if raw, ok := opts["text_batch_window_ms"]; ok {
+			if ms, err := coerceMilliseconds(raw); err != nil {
+				return nil, fmt.Errorf("nexus: invalid text_batch_window_ms %v: %w", raw, err)
+			} else if ms > 0 {
+				window = time.Duration(ms) * time.Millisecond
+			}
 		}
 	}
 
+	// 2. Copy Policy configuration
+	// nexus_copy_enabled: bool (default: true if omitted for backward compatibility)
 	copyOpts := DefaultCopyPolicyOptions()
+	if rawCopy, ok := opts["nexus_copy_enabled"]; ok {
+		if b, ok := coerceBool(rawCopy); ok {
+			copyOpts.Enabled = b
+		}
+	}
+	if rawSHA, ok := opts["nexus_copy_sha"]; ok {
+		if b, ok := coerceBool(rawSHA); ok {
+			copyOpts.EnableSHA = b
+		}
+	}
+	if rawWIN, ok := opts["nexus_copy_win"]; ok {
+		if b, ok := coerceBool(rawWIN); ok {
+			copyOpts.EnableWIN = b
+		}
+	}
+	if rawPath, ok := opts["nexus_copy_path"]; ok {
+		if b, ok := coerceBool(rawPath); ok {
+			copyOpts.EnablePath = b
+		}
+	}
+	if rawCmd, ok := opts["nexus_copy_command"]; ok {
+		if b, ok := coerceBool(rawCmd); ok {
+			copyOpts.EnableCommand = b
+		}
+	}
 	if rawMax, ok := opts["max_copy_buttons"]; ok {
 		if max, err := coerceMilliseconds(rawMax); err == nil && max > 0 {
 			copyOpts.MaxButtons = int(max)
+		}
+	}
+	if rawPerRow, ok := opts["buttons_per_row"]; ok {
+		if perRow, err := coerceMilliseconds(rawPerRow); err == nil && perRow > 0 {
+			copyOpts.ButtonsPerRow = int(perRow)
+		}
+	}
+	if rawMaxLen, ok := opts["max_copy_text_len"]; ok {
+		if maxLen, err := coerceMilliseconds(rawMaxLen); err == nil && maxLen > 0 {
+			copyOpts.MaxCopyTextLen = int(maxLen)
 		}
 	}
 
@@ -96,6 +145,8 @@ func (p *DebouncedTelegramPlatform) Stop() error {
 	}
 	return p.underlying.Stop()
 }
+
+// Forward optional capability interfaces supported by telegram.Platform
 
 // MessageButtonUpdater is an optional platform capability for in-place message updates with buttons.
 type MessageButtonUpdater interface {
@@ -211,6 +262,37 @@ func (p *DebouncedTelegramPlatform) KeepPreviewForHandle(handle any) bool {
 		return pref.KeepPreviewOnFinish()
 	}
 	return true
+}
+
+func coerceBool(v any) (bool, bool) {
+	switch x := v.(type) {
+	case bool:
+		return x, true
+	case string:
+		switch strings.ToLower(strings.TrimSpace(x)) {
+		case "true", "1", "yes", "on":
+			return true, true
+		case "false", "0", "no", "off":
+			return false, true
+		}
+	case int:
+		return x != 0, true
+	case int32:
+		return x != 0, true
+	case int64:
+		return x != 0, true
+	case uint:
+		return x != 0, true
+	case uint32:
+		return x != 0, true
+	case uint64:
+		return x != 0, true
+	case float32:
+		return x != 0, true
+	case float64:
+		return x != 0, true
+	}
+	return false, false
 }
 
 func coerceMilliseconds(v any) (int64, error) {

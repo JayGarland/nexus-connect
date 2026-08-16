@@ -404,5 +404,21 @@ func TestDebouncedTelegramPlatform_E2EScenarios(t *testing.T) {
 			t.Fatalf("expected 0 buttons for plain prose, got %d", len(mock.buttonsSent))
 		}
 		mock.mu.Unlock()
+
+		// 4. When nexus_copy_enabled is false, artifacts do NOT produce buttons
+		wrapperDisabled := &DebouncedTelegramPlatform{
+			underlying: mock,
+			window:     50 * time.Millisecond,
+			copyOpts:   CopyPolicyOptions{Enabled: false},
+		}
+		err = wrapperDisabled.Reply(ctx, "ctx", "Commit 3ec6050a1c74b030ce59686add81f42302a2613c published.")
+		if err != nil {
+			t.Fatalf("Reply failed: %v", err)
+		}
+		mock.mu.Lock()
+		if len(mock.buttonsSent) != 0 {
+			t.Fatalf("expected 0 buttons when copy is disabled, got %d", len(mock.buttonsSent))
+		}
+		mock.mu.Unlock()
 	})
 }
