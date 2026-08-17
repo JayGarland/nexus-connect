@@ -124,6 +124,7 @@ func (p *DebouncedTelegramPlatform) Start(handler core.MessageHandler) error {
 }
 
 func (p *DebouncedTelegramPlatform) Reply(ctx context.Context, replyCtx any, content string) error {
+	content = NormalizeExcessiveNewlines(content)
 	buttons := ExtractCopyButtons(content, p.copyOpts)
 	if len(buttons) > 0 {
 		if s, ok := p.underlying.(core.InlineButtonSender); ok {
@@ -138,6 +139,7 @@ func (p *DebouncedTelegramPlatform) Reply(ctx context.Context, replyCtx any, con
 }
 
 func (p *DebouncedTelegramPlatform) Send(ctx context.Context, replyCtx any, content string) error {
+	content = NormalizeExcessiveNewlines(content)
 	buttons := ExtractCopyButtons(content, p.copyOpts)
 	if len(buttons) > 0 {
 		if s, ok := p.underlying.(core.InlineButtonSender); ok {
@@ -166,6 +168,7 @@ type MessageButtonUpdater interface {
 }
 
 func (p *DebouncedTelegramPlatform) UpdateMessage(ctx context.Context, replyCtx any, content string) error {
+	content = NormalizeExcessiveNewlines(content)
 	buttons := ExtractCopyButtons(content, p.copyOpts)
 	if len(buttons) > 0 {
 		if u, ok := p.underlying.(MessageButtonUpdater); ok {
@@ -183,6 +186,7 @@ func (p *DebouncedTelegramPlatform) UpdateMessage(ctx context.Context, replyCtx 
 }
 
 func (p *DebouncedTelegramPlatform) SendWithButtons(ctx context.Context, replyCtx any, content string, buttons [][]core.ButtonOption) error {
+	content = NormalizeExcessiveNewlines(content)
 	if s, ok := p.underlying.(core.InlineButtonSender); ok {
 		return s.SendWithButtons(ctx, replyCtx, content, buttons)
 	}
@@ -190,6 +194,7 @@ func (p *DebouncedTelegramPlatform) SendWithButtons(ctx context.Context, replyCt
 }
 
 func (p *DebouncedTelegramPlatform) UpdateMessageWithButtons(ctx context.Context, replyCtx any, content string, buttons [][]core.ButtonOption) error {
+	content = NormalizeExcessiveNewlines(content)
 	if u, ok := p.underlying.(MessageButtonUpdater); ok {
 		return u.UpdateMessageWithButtons(ctx, replyCtx, content, buttons)
 	}
@@ -246,6 +251,7 @@ func (p *DebouncedTelegramPlatform) ReconstructReplyCtx(sessionKey string) (any,
 }
 
 func (p *DebouncedTelegramPlatform) SendPreviewStart(ctx context.Context, replyCtx any, content string) (any, error) {
+	content = NormalizeExcessiveNewlines(content)
 	if s, ok := p.underlying.(core.PreviewStarter); ok {
 		return s.SendPreviewStart(ctx, replyCtx, content)
 	}
