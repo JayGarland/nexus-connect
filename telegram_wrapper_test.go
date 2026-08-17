@@ -422,55 +422,20 @@ func TestDebouncedTelegramPlatform_E2EScenarios(t *testing.T) {
 		mock.mu.Unlock()
 	})
 
-	// Whitespace normalization in wrapper methods
-	t.Run("WhitespaceNormalization_AutoCollapsing", func(t *testing.T) {
+	// Quiet separator capability test
+	t.Run("QuietSeparator_SingleNewline", func(t *testing.T) {
 		mock := &wrapperMockPlatform{name: "telegram"}
 		wrapper := &DebouncedTelegramPlatform{
 			underlying: mock,
 			window:     50 * time.Millisecond,
 		}
 
-		ctx := context.Background()
-
-		// 1. Reply with excessive newlines
-		inputReply := "First paragraph\n\n\n\n\nSecond paragraph"
-		expectedReply := "First paragraph\n\nSecond paragraph"
-		if err := wrapper.Reply(ctx, "ctx", inputReply); err != nil {
-			t.Fatalf("Reply failed: %v", err)
+		qp, ok := any(wrapper).(core.QuietSeparatorProvider)
+		if !ok {
+			t.Fatalf("wrapper does not implement core.QuietSeparatorProvider")
 		}
-
-		// 2. Send with code block containing internal newlines + excessive outside
-		inputSend := "Intro\n\n\n\n```python\nfoo()\n\n\n\nbar()\n```\n\n\n\nOutro"
-		expectedSend := "Intro\n\n```python\nfoo()\n\n\n\nbar()\n```\n\nOutro"
-		if err := wrapper.Send(ctx, "ctx", inputSend); err != nil {
-			t.Fatalf("Send failed: %v", err)
-		}
-
-		// 3. UpdateMessage with excessive newlines
-		inputUpdate := "Progress step 1\n\n\n\nProgress step 2"
-		expectedUpdate := "Progress step 1\n\nProgress step 2"
-		if err := wrapper.UpdateMessage(ctx, "ctx", inputUpdate); err != nil {
-			t.Fatalf("UpdateMessage failed: %v", err)
-		}
-
-		mock.mu.Lock()
-		defer mock.mu.Unlock()
-
-		if len(mock.dispatches) != 2 {
-			t.Fatalf("expected 2 dispatches, got %d", len(mock.dispatches))
-		}
-		if mock.dispatches[0] != expectedReply {
-			t.Errorf("Reply mismatch:\nExpected: %q\nActual:   %q", expectedReply, mock.dispatches[0])
-		}
-		if mock.dispatches[1] != expectedSend {
-			t.Errorf("Send mismatch:\nExpected: %q\nActual:   %q", expectedSend, mock.dispatches[1])
-		}
-
-		if len(mock.updatesSent) != 1 {
-			t.Fatalf("expected 1 update, got %d", len(mock.updatesSent))
-		}
-		if mock.updatesSent[0] != expectedUpdate {
-			t.Errorf("UpdateMessage mismatch:\nExpected: %q\nActual:   %q", expectedUpdate, mock.updatesSent[0])
+		if sep := qp.QuietSeparator(); sep != "\n" {
+			t.Fatalf("expected quiet separator %q, got %q", "\n", sep)
 		}
 	})
 }

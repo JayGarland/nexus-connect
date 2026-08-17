@@ -124,7 +124,6 @@ func (p *DebouncedTelegramPlatform) Start(handler core.MessageHandler) error {
 }
 
 func (p *DebouncedTelegramPlatform) Reply(ctx context.Context, replyCtx any, content string) error {
-	content = NormalizeExcessiveNewlines(content)
 	buttons := ExtractCopyButtons(content, p.copyOpts)
 	if len(buttons) > 0 {
 		if s, ok := p.underlying.(core.InlineButtonSender); ok {
@@ -139,7 +138,6 @@ func (p *DebouncedTelegramPlatform) Reply(ctx context.Context, replyCtx any, con
 }
 
 func (p *DebouncedTelegramPlatform) Send(ctx context.Context, replyCtx any, content string) error {
-	content = NormalizeExcessiveNewlines(content)
 	buttons := ExtractCopyButtons(content, p.copyOpts)
 	if len(buttons) > 0 {
 		if s, ok := p.underlying.(core.InlineButtonSender); ok {
@@ -168,7 +166,6 @@ type MessageButtonUpdater interface {
 }
 
 func (p *DebouncedTelegramPlatform) UpdateMessage(ctx context.Context, replyCtx any, content string) error {
-	content = NormalizeExcessiveNewlines(content)
 	buttons := ExtractCopyButtons(content, p.copyOpts)
 	if len(buttons) > 0 {
 		if u, ok := p.underlying.(MessageButtonUpdater); ok {
@@ -186,7 +183,6 @@ func (p *DebouncedTelegramPlatform) UpdateMessage(ctx context.Context, replyCtx 
 }
 
 func (p *DebouncedTelegramPlatform) SendWithButtons(ctx context.Context, replyCtx any, content string, buttons [][]core.ButtonOption) error {
-	content = NormalizeExcessiveNewlines(content)
 	if s, ok := p.underlying.(core.InlineButtonSender); ok {
 		return s.SendWithButtons(ctx, replyCtx, content, buttons)
 	}
@@ -194,7 +190,6 @@ func (p *DebouncedTelegramPlatform) SendWithButtons(ctx context.Context, replyCt
 }
 
 func (p *DebouncedTelegramPlatform) UpdateMessageWithButtons(ctx context.Context, replyCtx any, content string, buttons [][]core.ButtonOption) error {
-	content = NormalizeExcessiveNewlines(content)
 	if u, ok := p.underlying.(MessageButtonUpdater); ok {
 		return u.UpdateMessageWithButtons(ctx, replyCtx, content, buttons)
 	}
@@ -236,6 +231,10 @@ func (p *DebouncedTelegramPlatform) ProgressStyle() string {
 	return "compact"
 }
 
+func (p *DebouncedTelegramPlatform) QuietSeparator() string {
+	return "\n"
+}
+
 func (p *DebouncedTelegramPlatform) RegisterCommands(commands []core.BotCommandInfo) error {
 	if r, ok := p.underlying.(core.CommandRegistrar); ok {
 		return r.RegisterCommands(commands)
@@ -251,7 +250,6 @@ func (p *DebouncedTelegramPlatform) ReconstructReplyCtx(sessionKey string) (any,
 }
 
 func (p *DebouncedTelegramPlatform) SendPreviewStart(ctx context.Context, replyCtx any, content string) (any, error) {
-	content = NormalizeExcessiveNewlines(content)
 	if s, ok := p.underlying.(core.PreviewStarter); ok {
 		return s.SendPreviewStart(ctx, replyCtx, content)
 	}
@@ -350,6 +348,7 @@ var (
 	_ core.AudioSender               = (*DebouncedTelegramPlatform)(nil)
 	_ core.TypingIndicator           = (*DebouncedTelegramPlatform)(nil)
 	_ core.ProgressStyleProvider     = (*DebouncedTelegramPlatform)(nil)
+	_ core.QuietSeparatorProvider    = (*DebouncedTelegramPlatform)(nil)
 	_ core.CommandRegistrar          = (*DebouncedTelegramPlatform)(nil)
 	_ core.ReplyContextReconstructor = (*DebouncedTelegramPlatform)(nil)
 )
