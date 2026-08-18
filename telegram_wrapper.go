@@ -280,6 +280,13 @@ func (p *DebouncedTelegramPlatform) KeepPreviewForHandle(handle any) bool {
 	return true
 }
 
+func (p *DebouncedTelegramPlatform) DeferPreviewCleanup(handle any) bool {
+	if d, ok := p.underlying.(interface{ DeferPreviewCleanup(any) bool }); ok {
+		return d.DeferPreviewCleanup(handle)
+	}
+	return false
+}
+
 func coerceBool(v any) (bool, bool) {
 	switch x := v.(type) {
 	case bool:

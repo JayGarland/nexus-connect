@@ -353,10 +353,12 @@ func TestDebouncedTelegramPlatform_E2EScenarios(t *testing.T) {
 	// CopyTextButton automatic attachment test
 	t.Run("CopyTextButtons_AutoAttachment", func(t *testing.T) {
 		mock := &wrapperMockPlatform{name: "telegram"}
+		copyOpts := DefaultCopyPolicyOptions()
+		copyOpts.Enabled = true
 		wrapper := &DebouncedTelegramPlatform{
 			underlying: mock,
 			window:     50 * time.Millisecond,
-			copyOpts:   DefaultCopyPolicyOptions(),
+			copyOpts:   copyOpts,
 		}
 
 		ctx := context.Background()

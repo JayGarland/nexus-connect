@@ -7,6 +7,7 @@ import (
 
 func TestExtractCopyButtons_Specimens(t *testing.T) {
 	opts := DefaultCopyPolicyOptions()
+	opts.Enabled = true
 
 	// Specimen 1: Commit SHA
 	shaContent := "Fixed in commit 3ec6050a1c74b030ce59686add81f42302a2613c."
@@ -51,6 +52,7 @@ func TestExtractCopyButtons_Specimens(t *testing.T) {
 
 func TestExtractCopyButtons_Deduplication(t *testing.T) {
 	opts := DefaultCopyPolicyOptions()
+	opts.Enabled = true
 	content := "Commit 3ec6050a1c74b030ce59686add81f42302a2613c was rebased as 3ec6050a1c74b030ce59686add81f42302a2613c."
 	buttons := ExtractCopyButtons(content, opts)
 
@@ -65,6 +67,7 @@ func TestExtractCopyButtons_Deduplication(t *testing.T) {
 
 func TestExtractCopyButtons_NormalProse_NoSpam(t *testing.T) {
 	opts := DefaultCopyPolicyOptions()
+	opts.Enabled = true
 	content := "This is a normal conversational response without any git hashes, work item numbers, paths, or terminal commands. Just plain text."
 	buttons := ExtractCopyButtons(content, opts)
 	if len(buttons) != 0 {
@@ -74,6 +77,7 @@ func TestExtractCopyButtons_NormalProse_NoSpam(t *testing.T) {
 
 func TestExtractCopyButtons_CappingAndRows(t *testing.T) {
 	opts := DefaultCopyPolicyOptions()
+	opts.Enabled = true
 	opts.MaxButtons = 4
 	opts.ButtonsPerRow = 2
 
@@ -95,6 +99,7 @@ func TestExtractCopyButtons_CappingAndRows(t *testing.T) {
 
 func TestExtractCopyButtons_OverLimitLengthOmitted(t *testing.T) {
 	opts := DefaultCopyPolicyOptions()
+	opts.Enabled = true
 	opts.MaxCopyTextLen = 50
 
 	longPath := "Rooms/" + strings.Repeat("subfolder/", 10) + "file.md"
@@ -102,5 +107,17 @@ func TestExtractCopyButtons_OverLimitLengthOmitted(t *testing.T) {
 	buttons := ExtractCopyButtons(content, opts)
 	if len(buttons) != 0 {
 		t.Fatalf("expected over-limit target to be omitted, got %v", buttons)
+	}
+}
+
+func TestExtractCopyButtons_DefaultDisabled(t *testing.T) {
+	opts := DefaultCopyPolicyOptions()
+	if opts.Enabled {
+		t.Fatalf("DefaultCopyPolicyOptions should be disabled by default")
+	}
+	content := "Commit 3ec6050a1c74b030ce59686add81f42302a2613c under WIN 001-006-20260816-003"
+	buttons := ExtractCopyButtons(content, opts)
+	if len(buttons) != 0 {
+		t.Fatalf("expected 0 buttons when disabled by default, got %v", buttons)
 	}
 }

@@ -132,13 +132,13 @@ func TestRegistrationProbe_FeatureToggleMatrix(t *testing.T) {
 			expectedMax:    4,
 		},
 		{
-			name: "Backward Compat: Omitted flags default to ON with text_batch_window_ms",
+			name: "Backward Compat: Omitted flags default to copy disabled with text_batch_window_ms",
 			opts: map[string]any{
 				"token":                "test-token",
 				"text_batch_window_ms": 750,
 			},
 			expectedWindow: 750 * time.Millisecond,
-			expectedCopy:   true,
+			expectedCopy:   false,
 			expectedSHA:    true,
 			expectedWIN:    true,
 			expectedPath:   true,

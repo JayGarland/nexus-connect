@@ -39,7 +39,7 @@ type CopyPolicyOptions struct {
 
 func DefaultCopyPolicyOptions() CopyPolicyOptions {
 	return CopyPolicyOptions{
-		Enabled:        true,
+		Enabled:        false,
 		MaxButtons:     4,
 		ButtonsPerRow:  2,
 		MaxCopyTextLen: 256,
