@@ -47,13 +47,6 @@ func (m *wrapperMockPlatform) SendWithButtons(ctx context.Context, replyCtx any,
 	m.buttonsSent = append(m.buttonsSent, buttons)
 	return nil
 }
-func (m *wrapperMockPlatform) UpdateMessageWithButtons(ctx context.Context, replyCtx any, content string, buttons [][]core.ButtonOption) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.updatesSent = append(m.updatesSent, content)
-	m.buttonsSent = append(m.buttonsSent, buttons)
-	return nil
-}
 func (m *wrapperMockPlatform) Stop() error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -75,15 +68,26 @@ func (m *wrapperMockPlatform) SendImage(ctx context.Context, replyCtx any, img c
 	m.imagesSent = append(m.imagesSent, img.FileName)
 	return nil
 }
-
+func (m *wrapperMockPlatform) SendFile(ctx context.Context, replyCtx any, file core.FileAttachment) error {
+	return nil
+}
+func (m *wrapperMockPlatform) SendAudio(ctx context.Context, replyCtx any, audio []byte, format string) error {
+	return nil
+}
 func (m *wrapperMockPlatform) SendPreviewStart(ctx context.Context, replyCtx any, content string) (any, error) {
 	return 1, nil
 }
 func (m *wrapperMockPlatform) DeletePreviewMessage(ctx context.Context, previewHandle any) error {
 	return nil
 }
-func (m *wrapperMockPlatform) KeepPreviewOnFinish() bool {
-	return true
+func (m *wrapperMockPlatform) StartTyping(ctx context.Context, replyCtx any) (stop func()) {
+	return func() {}
+}
+func (m *wrapperMockPlatform) RegisterCommands(commands []core.BotCommandInfo) error {
+	return nil
+}
+func (m *wrapperMockPlatform) ReconstructReplyCtx(sessionKey string) (any, error) {
+	return nil, nil
 }
 
 func waitForTurnCount(mu *sync.Mutex, turns *[]*core.Message, expected int, timeout time.Duration) bool {
@@ -347,97 +351,6 @@ func TestDebouncedTelegramPlatform_E2EScenarios(t *testing.T) {
 
 		if updateCount != 1 || imageCount != 1 {
 			t.Fatalf("capability delegation failed: updates=%d images=%d", updateCount, imageCount)
-		}
-	})
-
-	// CopyTextButton automatic attachment test
-	t.Run("CopyTextButtons_AutoAttachment", func(t *testing.T) {
-		mock := &wrapperMockPlatform{name: "telegram"}
-		copyOpts := DefaultCopyPolicyOptions()
-		copyOpts.Enabled = true
-		wrapper := &DebouncedTelegramPlatform{
-			underlying: mock,
-			window:     50 * time.Millisecond,
-			copyOpts:   copyOpts,
-		}
-
-		ctx := context.Background()
-
-		// 1. Reply with Commit SHA -> triggers SendWithButtons
-		err := wrapper.Reply(ctx, "ctx", "Commit 3ec6050a1c74b030ce59686add81f42302a2613c published.")
-		if err != nil {
-			t.Fatalf("Reply failed: %v", err)
-		}
-
-		mock.mu.Lock()
-		if len(mock.buttonsSent) != 1 {
-			t.Fatalf("expected 1 button send, got %d", len(mock.buttonsSent))
-		}
-		if mock.buttonsSent[0][0][0].Text != "Copy SHA" || mock.buttonsSent[0][0][0].Data != "copy:3ec6050a1c74b030ce59686add81f42302a2613c" {
-			t.Fatalf("button mismatch: %+v", mock.buttonsSent[0][0][0])
-		}
-		mock.buttonsSent = nil
-		mock.mu.Unlock()
-
-		// 2. UpdateMessage with Path -> triggers UpdateMessageWithButtons
-		err = wrapper.UpdateMessage(ctx, "ctx", "Check Rooms/workshop/workbench/review/WI-0022-cc-connect-telegram-consecutive-aggregation-seam.md")
-		if err != nil {
-			t.Fatalf("UpdateMessage failed: %v", err)
-		}
-
-		mock.mu.Lock()
-		if len(mock.buttonsSent) != 1 {
-			t.Fatalf("expected 1 update with buttons, got %d", len(mock.buttonsSent))
-		}
-		if mock.buttonsSent[0][0][0].Text != "Copy path" {
-			t.Fatalf("expected Copy path, got %q", mock.buttonsSent[0][0][0].Text)
-		}
-		mock.buttonsSent = nil
-		mock.mu.Unlock()
-
-		// 3. Normal prose -> calls standard Send/Update without buttons
-		err = wrapper.Send(ctx, "ctx", "Just standard prose without anything to copy.")
-		if err != nil {
-			t.Fatalf("Send failed: %v", err)
-		}
-
-		mock.mu.Lock()
-		if len(mock.buttonsSent) != 0 {
-			t.Fatalf("expected 0 buttons for plain prose, got %d", len(mock.buttonsSent))
-		}
-		mock.mu.Unlock()
-
-		// 4. When nexus_copy_enabled is false, artifacts do NOT produce buttons
-		wrapperDisabled := &DebouncedTelegramPlatform{
-			underlying: mock,
-			window:     50 * time.Millisecond,
-			copyOpts:   CopyPolicyOptions{Enabled: false},
-		}
-		err = wrapperDisabled.Reply(ctx, "ctx", "Commit 3ec6050a1c74b030ce59686add81f42302a2613c published.")
-		if err != nil {
-			t.Fatalf("Reply failed: %v", err)
-		}
-		mock.mu.Lock()
-		if len(mock.buttonsSent) != 0 {
-			t.Fatalf("expected 0 buttons when copy is disabled, got %d", len(mock.buttonsSent))
-		}
-		mock.mu.Unlock()
-	})
-
-	// Quiet separator capability test
-	t.Run("QuietSeparator_SingleNewline", func(t *testing.T) {
-		mock := &wrapperMockPlatform{name: "telegram"}
-		wrapper := &DebouncedTelegramPlatform{
-			underlying: mock,
-			window:     50 * time.Millisecond,
-		}
-
-		qp, ok := any(wrapper).(core.QuietSeparatorProvider)
-		if !ok {
-			t.Fatalf("wrapper does not implement core.QuietSeparatorProvider")
-		}
-		if sep := qp.QuietSeparator(); sep != "\n" {
-			t.Fatalf("expected quiet separator %q, got %q", "\n", sep)
 		}
 	})
 }

@@ -3,7 +3,6 @@ package nexus
 import (
 	"context"
 	"fmt"
-	"log/slog"
 	"strings"
 	"time"
 
@@ -12,25 +11,21 @@ import (
 )
 
 // DebouncedTelegramPlatform wraps an underlying Telegram platform to aggregate
-// rapid consecutive text messages during a quiet window and attach CopyTextButtons to durable output.
+// rapid consecutive text messages during a quiet window.
 type DebouncedTelegramPlatform struct {
 	underlying core.Platform
 	aggregator *TelegramAggregator
 	window     time.Duration
-	copyOpts   CopyPolicyOptions
 }
 
 // NewTelegramWrapper is the platform factory registered with core.RegisterPlatform.
-// It parses aggregation and copy-worthy button policies from config.toml platform options.
+// It parses aggregation policies from config.toml platform options.
 func NewTelegramWrapper(opts map[string]any) (core.Platform, error) {
 	underlying, err := telegram.New(opts)
 	if err != nil {
 		return nil, err
 	}
 
-	// 1. Aggregation configuration
-	// nexus_aggregation_enabled: bool (default: true if omitted)
-	// If enabled, uses text_batch_window_ms (>0)
 	var window time.Duration
 	aggEnabled := true
 	if rawAgg, ok := opts["nexus_aggregation_enabled"]; ok {
@@ -48,54 +43,9 @@ func NewTelegramWrapper(opts map[string]any) (core.Platform, error) {
 		}
 	}
 
-	// 2. Copy Policy configuration
-	// nexus_copy_enabled: bool (default: true if omitted for backward compatibility)
-	copyOpts := DefaultCopyPolicyOptions()
-	if rawCopy, ok := opts["nexus_copy_enabled"]; ok {
-		if b, ok := coerceBool(rawCopy); ok {
-			copyOpts.Enabled = b
-		}
-	}
-	if rawSHA, ok := opts["nexus_copy_sha"]; ok {
-		if b, ok := coerceBool(rawSHA); ok {
-			copyOpts.EnableSHA = b
-		}
-	}
-	if rawWIN, ok := opts["nexus_copy_win"]; ok {
-		if b, ok := coerceBool(rawWIN); ok {
-			copyOpts.EnableWIN = b
-		}
-	}
-	if rawPath, ok := opts["nexus_copy_path"]; ok {
-		if b, ok := coerceBool(rawPath); ok {
-			copyOpts.EnablePath = b
-		}
-	}
-	if rawCmd, ok := opts["nexus_copy_command"]; ok {
-		if b, ok := coerceBool(rawCmd); ok {
-			copyOpts.EnableCommand = b
-		}
-	}
-	if rawMax, ok := opts["max_copy_buttons"]; ok {
-		if max, err := coerceMilliseconds(rawMax); err == nil && max > 0 {
-			copyOpts.MaxButtons = int(max)
-		}
-	}
-	if rawPerRow, ok := opts["buttons_per_row"]; ok {
-		if perRow, err := coerceMilliseconds(rawPerRow); err == nil && perRow > 0 {
-			copyOpts.ButtonsPerRow = int(perRow)
-		}
-	}
-	if rawMaxLen, ok := opts["max_copy_text_len"]; ok {
-		if maxLen, err := coerceMilliseconds(rawMaxLen); err == nil && maxLen > 0 {
-			copyOpts.MaxCopyTextLen = int(maxLen)
-		}
-	}
-
 	return &DebouncedTelegramPlatform{
 		underlying: underlying,
 		window:     window,
-		copyOpts:   copyOpts,
 	}, nil
 }
 
@@ -107,14 +57,6 @@ func (p *DebouncedTelegramPlatform) Window() time.Duration {
 	return p.window
 }
 
-func (p *DebouncedTelegramPlatform) CopyOptions() CopyPolicyOptions {
-	return p.copyOpts
-}
-
-func (p *DebouncedTelegramPlatform) CopyEnabled() bool {
-	return p.copyOpts.Enabled
-}
-
 func (p *DebouncedTelegramPlatform) Start(handler core.MessageHandler) error {
 	if p.window > 0 {
 		p.aggregator = NewTelegramAggregator(p.window, handler)
@@ -124,30 +66,10 @@ func (p *DebouncedTelegramPlatform) Start(handler core.MessageHandler) error {
 }
 
 func (p *DebouncedTelegramPlatform) Reply(ctx context.Context, replyCtx any, content string) error {
-	buttons := ExtractCopyButtons(content, p.copyOpts)
-	if len(buttons) > 0 {
-		if s, ok := p.underlying.(core.InlineButtonSender); ok {
-			if err := s.SendWithButtons(ctx, replyCtx, content, buttons); err == nil {
-				return nil
-			} else {
-				slog.Debug("nexus: SendWithButtons Reply failed, falling back to underlying Reply", "error", err)
-			}
-		}
-	}
 	return p.underlying.Reply(ctx, replyCtx, content)
 }
 
 func (p *DebouncedTelegramPlatform) Send(ctx context.Context, replyCtx any, content string) error {
-	buttons := ExtractCopyButtons(content, p.copyOpts)
-	if len(buttons) > 0 {
-		if s, ok := p.underlying.(core.InlineButtonSender); ok {
-			if err := s.SendWithButtons(ctx, replyCtx, content, buttons); err == nil {
-				return nil
-			} else {
-				slog.Debug("nexus: SendWithButtons Send failed, falling back to underlying Send", "error", err)
-			}
-		}
-	}
 	return p.underlying.Send(ctx, replyCtx, content)
 }
 
@@ -160,22 +82,13 @@ func (p *DebouncedTelegramPlatform) Stop() error {
 
 // Forward optional capability interfaces supported by telegram.Platform
 
-// MessageButtonUpdater is an optional platform capability for in-place message updates with buttons.
-type MessageButtonUpdater interface {
-	UpdateMessageWithButtons(ctx context.Context, replyCtx any, content string, buttons [][]core.ButtonOption) error
+func (p *DebouncedTelegramPlatform) SetLifecycleHandler(h core.PlatformLifecycleHandler) {
+	if a, ok := p.underlying.(core.AsyncRecoverablePlatform); ok {
+		a.SetLifecycleHandler(h)
+	}
 }
 
 func (p *DebouncedTelegramPlatform) UpdateMessage(ctx context.Context, replyCtx any, content string) error {
-	buttons := ExtractCopyButtons(content, p.copyOpts)
-	if len(buttons) > 0 {
-		if u, ok := p.underlying.(MessageButtonUpdater); ok {
-			if err := u.UpdateMessageWithButtons(ctx, replyCtx, content, buttons); err == nil {
-				return nil
-			} else {
-				slog.Debug("nexus: UpdateMessageWithButtons failed, falling back to standard UpdateMessage", "error", err)
-			}
-		}
-	}
 	if u, ok := p.underlying.(core.MessageUpdater); ok {
 		return u.UpdateMessage(ctx, replyCtx, content)
 	}
@@ -185,13 +98,6 @@ func (p *DebouncedTelegramPlatform) UpdateMessage(ctx context.Context, replyCtx 
 func (p *DebouncedTelegramPlatform) SendWithButtons(ctx context.Context, replyCtx any, content string, buttons [][]core.ButtonOption) error {
 	if s, ok := p.underlying.(core.InlineButtonSender); ok {
 		return s.SendWithButtons(ctx, replyCtx, content, buttons)
-	}
-	return core.ErrNotSupported
-}
-
-func (p *DebouncedTelegramPlatform) UpdateMessageWithButtons(ctx context.Context, replyCtx any, content string, buttons [][]core.ButtonOption) error {
-	if u, ok := p.underlying.(MessageButtonUpdater); ok {
-		return u.UpdateMessageWithButtons(ctx, replyCtx, content, buttons)
 	}
 	return core.ErrNotSupported
 }
@@ -231,10 +137,6 @@ func (p *DebouncedTelegramPlatform) ProgressStyle() string {
 	return "compact"
 }
 
-func (p *DebouncedTelegramPlatform) QuietSeparator() string {
-	return "\n"
-}
-
 func (p *DebouncedTelegramPlatform) RegisterCommands(commands []core.BotCommandInfo) error {
 	if r, ok := p.underlying.(core.CommandRegistrar); ok {
 		return r.RegisterCommands(commands)
@@ -261,30 +163,6 @@ func (p *DebouncedTelegramPlatform) DeletePreviewMessage(ctx context.Context, pr
 		return c.DeletePreviewMessage(ctx, previewHandle)
 	}
 	return core.ErrNotSupported
-}
-
-func (p *DebouncedTelegramPlatform) KeepPreviewOnFinish() bool {
-	if pref, ok := p.underlying.(core.PreviewFinishPreference); ok {
-		return pref.KeepPreviewOnFinish()
-	}
-	return true
-}
-
-func (p *DebouncedTelegramPlatform) KeepPreviewForHandle(handle any) bool {
-	if checker, ok := p.underlying.(interface{ KeepPreviewForHandle(any) bool }); ok {
-		return checker.KeepPreviewForHandle(handle)
-	}
-	if pref, ok := p.underlying.(core.PreviewFinishPreference); ok {
-		return pref.KeepPreviewOnFinish()
-	}
-	return true
-}
-
-func (p *DebouncedTelegramPlatform) DeferPreviewCleanup(handle any) bool {
-	if d, ok := p.underlying.(interface{ DeferPreviewCleanup(any) bool }); ok {
-		return d.DeferPreviewCleanup(handle)
-	}
-	return false
 }
 
 func coerceBool(v any) (bool, bool) {
@@ -344,18 +222,16 @@ func coerceMilliseconds(v any) (int64, error) {
 // Compile-time interface assertions
 var (
 	_ core.Platform                  = (*DebouncedTelegramPlatform)(nil)
+	_ core.AsyncRecoverablePlatform  = (*DebouncedTelegramPlatform)(nil)
 	_ core.MessageUpdater            = (*DebouncedTelegramPlatform)(nil)
-	_ MessageButtonUpdater           = (*DebouncedTelegramPlatform)(nil)
 	_ core.InlineButtonSender        = (*DebouncedTelegramPlatform)(nil)
 	_ core.PreviewStarter            = (*DebouncedTelegramPlatform)(nil)
 	_ core.PreviewCleaner            = (*DebouncedTelegramPlatform)(nil)
-	_ core.PreviewFinishPreference   = (*DebouncedTelegramPlatform)(nil)
 	_ core.ImageSender               = (*DebouncedTelegramPlatform)(nil)
 	_ core.FileSender                = (*DebouncedTelegramPlatform)(nil)
 	_ core.AudioSender               = (*DebouncedTelegramPlatform)(nil)
 	_ core.TypingIndicator           = (*DebouncedTelegramPlatform)(nil)
 	_ core.ProgressStyleProvider     = (*DebouncedTelegramPlatform)(nil)
-	_ core.QuietSeparatorProvider    = (*DebouncedTelegramPlatform)(nil)
 	_ core.CommandRegistrar          = (*DebouncedTelegramPlatform)(nil)
 	_ core.ReplyContextReconstructor = (*DebouncedTelegramPlatform)(nil)
 )
